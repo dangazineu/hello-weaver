@@ -9,6 +9,14 @@ import (
 	"github.com/ServiceWeaver/weaver"
 )
 
+func reverse(c context.Context, reverser Reverser, name string, channel chan string, e chan error) {
+	message, err := reverser.Reverse(c, name)
+	if err != nil {
+		e <- err
+	}
+	channel <- message
+}
+
 func main() {
 	// Get a network listener on address "localhost:12345".
 	root := weaver.Init(context.Background())
@@ -26,11 +34,17 @@ func main() {
 
 	// Serve the /hello endpoint.
 	http.HandleFunc("/hello", func(w http.ResponseWriter, r *http.Request) {
-		reversed, err := reverser.Reverse(r.Context(), r.URL.Query().Get("name"))
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		result, err := make(chan string), make(chan error)
+
+		go reverse(r.Context(), reverser, r.URL.Query().Get("name"), result, err)
+
+		select {
+		case message := <-result:
+			fmt.Fprintf(w, "Hello, %s!\n", message)
+		case e := <-err:
+			fmt.Fprintf(w, "An error has occurred:  %s\n", e)
+			log.Fatal(e)
 		}
-		fmt.Fprintf(w, "Hello, %s!\n", reversed)
 	})
 	http.Serve(lis, nil)
 }
